@@ -29,21 +29,6 @@ class GraphNode(object):
     def detach_node(self, node):
         self.detach_node_by_name(node.name)
 
-    def build_topo(self):
-        topo = []
-        visited = set()
-
-        def topology(x):
-            if x not in visited:
-                visited.add(x)
-                for child in x.nodes.values():
-                    topology(child)
-                topo.append(x)
-
-        topology(self)
-
-        return topo
-
     def requires_grad_(self, val):
         if val:
             self.requires_grad = True
@@ -51,8 +36,8 @@ class GraphNode(object):
         else:
             self.requires_grad = False
 
-    def update_grad(self, dx):
+    def add_grad(self, dx):
         if self.requires_grad is False:
             return
 
-        self.grad = dx
+        self.grad += dx
