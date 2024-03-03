@@ -14,7 +14,10 @@ class Function(object):
         pass
 
     def backward(self, ):
-        pass
+        for node in self.out.nodes.values():
+            if node.function_id is not None:
+                pass
+                # Hanel funckian, kanchel ira backwardy
 
     def _update_grad(self, ):
         pass
@@ -39,29 +42,24 @@ class Add(Function):
 
     def backward(self,):
         self.out.add_grad(np.ones(self.out.shape))
-        for name, node in self.out.nodes.items():
-            if node.requries_grad:
-                self._compute_node_grad(node)
-            if node.function_id is not None:
-                # Hanel funckian, kanchel ira backwardy
+        self._update_grad()
+        super().backward()
 
     # This should be called from a backward of a higher function
     def _update_grad(self,):
         for name, node in self.out.nodes.items():
-            if node.requires_grad:
-                self._compute_node_grad(node)
+            if not node.requires_grad:
+                continue
 
-    def _compute_node_grad(self, node):
-        # TODO
-        dx = self.out.grad
-        if dx.ndim != node.ndim:  # Broadcasting case
-            dx = np.mean(dx, axis=0)
-        node.add_grad(dx)
+            dx = self.out.grad
+            if dx.ndim != len(self.grad_info[name]):  # Broadcasting case
+                dx = np.mean(dx, axis=0)
+            node.add_grad(dx)
 
 
 class Matmul(Function):
     def __init__(self, name):
-        super(Add, self).__init__(name)
+        super(Matmul, self).__init__(name)
 
     def forward(self, *args):
         m = np.matmul(args[0].value, args[1].value)
@@ -74,8 +72,8 @@ class Matmul(Function):
         key2 = self.out.attach_node(args[1])
 
         if self.out.requires_grad:
-            self.grad_info[key1] = args[0].value
-            self.grad_info[key2] = args[1].value
+            self.grad_info[key1] = args[1].value
+            self.grad_info[key2] = args[0].value
 
         return self.out
 
@@ -84,7 +82,8 @@ class Matmul(Function):
             return
 
         self.out.add_grad(np.ones(self.out.shape))
-        # TODO
+        self._update_grad()
+        super().backward()
 
     # This should be called from a backward of a higher function
     def _update_grad(self,):
@@ -94,8 +93,15 @@ class Matmul(Function):
         dnode2 = self.grad_info[name2]
 
         dnode1 = self.out.grad @ dnode1.T
-        dnode2 = self.out.grad @ dnode2.T
+        dnode2 = dnode2.T @ self.out.grad
 
         node1.add_grad(dnode1)
         node2.add_grad(dnode2)
 
+
+class Linear(Function):
+    def __init__(self, name):
+        super(Linear, self).__init__(name)
+
+    def forward(self, *args):
+        l = 
