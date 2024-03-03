@@ -2,13 +2,14 @@
 
 
 class GraphNode(object):
-    def __init__(self, name, requires_grad=False):
+    def __init__(self, name, requires_grad=False, function_id=None):
         self.nodes = {}
         self.name = name
 
         self.requires_grad = requires_grad
         self.grad = None
         self.requires_grad_(requires_grad)
+        self.function_id = function_id
 
     def attach_node(self, node):
         key = node.name
@@ -16,7 +17,7 @@ class GraphNode(object):
             key = f"node{len(self.nodes)}"
         self.nodes[key] = node
 
-        if node.requires_grad:
+        if node.requires_grad and (not self.requires_grad):
             self.requires_grad_(True)
 
         return key
