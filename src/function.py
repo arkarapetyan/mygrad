@@ -68,6 +68,10 @@ class _FunctionFactory(metaclass=_SingletonMeta):
             name = f"exp_{num}"
             print(name)
             return name, _Exp(name)
+        elif f_type == _Sigmoid:
+            name = f"sigmoid_{num}"
+            print(name)
+            return name, _Sigmoid(name)
         elif f_type == _Linear:
             name = f"linear_{num}"
             print(name)
@@ -151,7 +155,7 @@ class _Mul(_Function):
 
     # This should be called from a backward of a higher function
     def update_grad(self, ):
-        (name1, node1), (name2, node2) = self.out.nodes.items()
+        [(name1, node1), (name2, node2)] = self.out.nodes.items()
 
         dnode1 = self.grad_info[name1]
         dnode2 = self.grad_info[name2]
@@ -194,7 +198,7 @@ class _Matmul(_Function):
 
     # This should be called from a backward of a higher function
     def update_grad(self, ):
-        (name1, node1), (name2, node2) = self.out.nodes.items()
+        [(name1, node1), (name2, node2)] = self.out.nodes.items()
 
         dnode1 = self.grad_info[name1]
         dnode2 = self.grad_info[name2]
@@ -228,9 +232,38 @@ class _Exp(_Function):
 
     # This should be called from a backward of a higher function
     def update_grad(self, ):
-        (name, node) = self.out.nodes.items()
+        [(name, node)] = self.out.nodes.items()
 
         dx = self.grad_info[name]
+        dx *= self.out.grad
+
+        node.add_grad(dx)
+
+
+class _Sigmoid(_Function):
+    def __init__(self, name):
+        super(_Sigmoid, self).__init__(name)
+
+    def forward(self, *args):
+        s = 1 / (1 + np.exp(-args[0].value)).squeeze()
+        self.out = Value(s, f"sigma({args[0].name})", function_id=self.name)
+
+        key = self.out.attach_node(args[0])
+
+        if self.out.requires_grad:
+            self.grad_info[key] = s
+
+        return self.out
+
+    def backward(self, ):
+        self.out.add_grad(np.ones(self.out.shape))
+        self.update_grad()
+        super().backward()
+
+    def update_grad(self, ):
+        [(name, node)] = self.out.nodes.items()
+
+        dx = self.grad_info[name] * (1 - self.grad_info[name])
         dx *= self.out.grad
 
         node.add_grad(dx)
@@ -241,7 +274,7 @@ class _Linear(_Function):
         super(_Linear, self).__init__(name)
 
     def forward(self, *args):
-        lin = args[0].value @ args[1].value + args[2].value
+        lin = (args[0].value @ args[1].value + args[2].value).squeeze()
         self.out = Value(lin, f"({args[0].name}@{args[1].name}+{args[2].name})", function_id=self.name)
 
         key1 = self.out.attach_node(args[0])
@@ -265,7 +298,7 @@ class _Linear(_Function):
 
     # This should be called from a backward of a higher function
     def update_grad(self, ):
-        (name1, node1), (name2, node2), (name3, node3) = self.out.nodes.items()
+        [(name1, node1), (name2, node2), (name3, node3)] = self.out.nodes.items()
 
         dnode1 = self.grad_info[name1]
         dnode2 = self.grad_info[name2]
@@ -281,10 +314,11 @@ class _Linear(_Function):
         node3.add_grad(dnode3)
 
 
-def add(a, b, return_func = False):
+def add(a, b, return_func=False):
     func = _FunctionFactory().get_new_function_of_type(_Add)
     if func is None:
         print(f"Failed to get function of type _Add")
+        return
 
     c = func.forward(a, b)
     if return_func:
@@ -293,10 +327,24 @@ def add(a, b, return_func = False):
     return c
 
 
-def matmul(A, B, return_func = False):
+def mul(a, b, return_func=False):
+    func = _FunctionFactory().get_new_function_of_type(_Mul)
+    if func is None:
+        print(f"Failed to get function of type _Mul")
+        return
+
+    c = func.forward(a, b)
+    if return_func:
+        return c, func
+
+    return c
+
+
+def matmul(A, B, return_func=False):
     func = _FunctionFactory().get_new_function_of_type(_Matmul)
     if func is None:
         print(f"Failed to get function of type _Matmul")
+        return
 
     c = func.forward(A, B)
     if return_func:
@@ -305,10 +353,37 @@ def matmul(A, B, return_func = False):
     return c
 
 
-def linear(X, W, b, return_func = False):
+def exp(x, return_func=False):
+    func = _FunctionFactory().get_new_function_of_type(_Exp)
+    if func is None:
+        print(f"Failed to get function of type _Exp")
+        return
+
+    y = func.forward(x)
+    if return_func:
+        return y, func
+
+    return y
+
+
+def sigmoid(x, return_func=False):
+    func = _FunctionFactory().get_new_function_of_type(_Sigmoid)
+    if func is None:
+        print(f"Failed to get function of type _Sigmoid")
+        return
+
+    y = func.forward(x)
+    if return_func:
+        return y, func
+
+    return y
+
+
+def linear(X, W, b, return_func=False):
     func = _FunctionFactory().get_new_function_of_type(_Linear)
     if func is None:
         print(f"Failed to get function of type _Linear")
+        return
 
     y = func.forward(X, W, b)
     if return_func:
