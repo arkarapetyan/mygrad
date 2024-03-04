@@ -4,7 +4,33 @@ import numpy as np
 from value import Value
 
 
-class Function(object):
+class _SingletonMeta(type):
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        """
+        Possible changes to the value of the `__init__` argument do not affect
+        the returned instance.
+        """
+        if cls not in cls._instances:
+            instance = super().__call__(*args, **kwargs)
+            cls._instances[cls] = instance
+        return cls._instances[cls]
+
+
+class _FunctionFactory(metaclass=_SingletonMeta):
+    _function_instances = {}
+
+    def get_function_of_type(self, type):
+        # TODO
+        pass
+
+    def get_function_by_id(self, id):
+        # TODO
+        pass
+
+
+class _Function(object):
     def __init__(self, name):
         self.name = name
         self.grad_info = {}
@@ -23,13 +49,13 @@ class Function(object):
         pass
 
 
-class Add(Function):
+class _Add(_Function):
     def __init__(self, name):
-        super(Add, self).__init__(name)
+        super(_Add, self).__init__(name)
 
     def forward(self, *args):
         s = (args[0].value + args[1].value).squeeze()
-        self.out = Value(s, f"({args[0].name}+{args[1].name})")
+        self.out = Value(s, f"({args[0].name}+{args[1].name})", function_id=self.name)
 
         key1 = self.out.attach_node(args[0])
         key2 = self.out.attach_node(args[1])
@@ -57,13 +83,13 @@ class Add(Function):
             node.add_grad(dx)
 
 
-class Mul(Function):
+class _Mul(_Function):
     def __init__(self, name):
-        super(Mul, self).__init__(name)
+        super(_Mul, self).__init__(name)
 
     def forward(self, *args):
         m = (args[0].value * args[1].value).squeeze()
-        self.out = Value(m, f"{args[0].name}*{args[1].name}")
+        self.out = Value(m, f"{args[0].name}*{args[1].name}", function_id=self.name)
 
         key1 = self.out.attach_node(args[0])
         key2 = self.out.attach_node(args[1])
@@ -86,20 +112,24 @@ class Mul(Function):
         dnode1 = self.grad_info[name1]
         dnode2 = self.grad_info[name2]
 
-        dnode1 *= self.out.grad @ dnode1.T
-        dnode2 =ad dnode2.T @ self.out.grad
+        dnode1 *= self.out.grad
+        if dnode1.ndim > self.out.ndim:
+            dnode1 = np.mean(dnode1, axis=0)
+        dnode2 *= self.out.grad
+        if dnode2.ndim > self.out.ndim:
+            dnode2 = np.mean(dnode2, axis=0)
 
         node1.add_grad(dnode1)
         node2.add_grad(dnode2)
 
 
-class Matmul(Function):
+class _Matmul(_Function):
     def __init__(self, name):
-        super(Matmul, self).__init__(name)
+        super(_Matmul, self).__init__(name)
 
     def forward(self, *args):
         m = np.matmul(args[0].value, args[1].value).squeeze()
-        self.out = Value(m, f"{args[0].name}@{args[1].name}")
+        self.out = Value(m, f"{args[0].name}@{args[1].name}", function_id=self.name)
 
         key1 = self.out.attach_node(args[0])
         key2 = self.out.attach_node(args[1])
@@ -132,20 +162,20 @@ class Matmul(Function):
         node2.add_grad(dnode2)
 
 
-class Exp(Function):
+class _Exp(_Function):
     def __init__(self, name):
-        super(Exp, self).__init__(name)
+        super(_Exp, self).__init__(name)
 
     def forward(self, *args):
         e = np.exp(args[0].value).squeeze()
-        self.out = Value(e, f"exp({args[0].name})")
+        self.out = Value(e, f"exp({args[0].name})", function_id=self.name)
 
         key = self.out.attach_node(args[0])
 
         if self.out.requires_grad:
             self.grad_info[key] = e
 
-        return out
+        return self.out
 
     def backward(self, ):
         self.out.add_grad(np.ones(self.out.shape))
@@ -162,13 +192,13 @@ class Exp(Function):
         node.add_grad(dx)
 
 
-class Linear(Function):
+class _Linear(_Function):
     def __init__(self, name):
-        super(Linear, self).__init__(name)
+        super(_Linear, self).__init__(name)
 
     def forward(self, *args):
-        l = (args[0].value @ args[1].value + args[2].value).squeeze()
-        self.out = Value(l, f"({x.name}@{w.name}+{b.name})")
+        lin = (args[0].value @ args[1].value + args[2].value).squeeze()
+        self.out = Value(lin, f"({args[0].name}@{args[1].name}+{args[2].name})", function_id=self.name)
 
         key1 = self.out.attach_node(args[0])
         key2 = self.out.attach_node(args[1])
@@ -200,7 +230,7 @@ class Linear(Function):
         dnode2 = dnode2.T @ self.out.grad
         dnode3 = self.out.grad
         if dnode3.ndim != len(self.grad_info[name3]):  # Broadcasting case
-            dnode3 = np.mean(dx, axis=0)
+            dnode3 = np.mean(dnode3, axis=0)
 
         node1.add_grad(dnode1)
         node2.add_grad(dnode2)
