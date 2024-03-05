@@ -76,6 +76,10 @@ class _FunctionFactory(metaclass=_SingletonMeta):
             name = f"linear_{num}"
             print(name)
             return name, _Linear(name)
+        elif f_type == _BCELossWithLogits:
+            name = f"bce_loss_logit_{num}"
+            print(name)
+            return name, _BCELossWithLogits(name)
 
 
 class _Function(object):
@@ -88,13 +92,13 @@ class _Function(object):
         pass
 
     def backward(self, ):
+        pass
+
+    def update_grad(self, ):
         for node in self.out.nodes.values():
             if node.function_id is not None:
                 func = _FunctionFactory().get_active_function_by_name(node.function_id)
                 func.update_grad()
-
-    def update_grad(self, ):
-        pass
 
 
 class _Add(_Function):
@@ -117,7 +121,6 @@ class _Add(_Function):
     def backward(self, ):
         self.out.add_grad(np.ones(self.out.shape))
         self.update_grad()
-        super().backward()
 
     # This should be called from a backward of a higher function
     def update_grad(self, ):
@@ -129,6 +132,8 @@ class _Add(_Function):
             if dx.ndim != len(self.grad_info[name]):  # Broadcasting case
                 dx = np.mean(dx, axis=0)
             node.add_grad(dx)
+
+        super().update_grad()
 
 
 class _Mul(_Function):
@@ -151,24 +156,19 @@ class _Mul(_Function):
     def backward(self, ):
         self.out.add_grad(np.ones(self.out.shape))
         self.update_grad()
-        super().backward()
 
     # This should be called from a backward of a higher function
     def update_grad(self, ):
-        [(name1, node1), (name2, node2)] = self.out.nodes.items()
+        for name, node in self.out.nodes.items():
+            if not node.requires_grad:
+                continue
 
-        dnode1 = self.grad_info[name1]
-        dnode2 = self.grad_info[name2]
+            dx = self.out.grad * self.grad_info[name]
+            if dx.ndim > self.out.ndim:
+                dx = np.mean(dx, axis=0)
+            node.add_grad(dx)
 
-        dnode1 *= self.out.grad
-        if dnode1.ndim > self.out.ndim:
-            dnode1 = np.mean(dnode1, axis=0)
-        dnode2 *= self.out.grad
-        if dnode2.ndim > self.out.ndim:
-            dnode2 = np.mean(dnode2, axis=0)
-
-        node1.add_grad(dnode1)
-        node2.add_grad(dnode2)
+        super().update_grad()
 
 
 class _Matmul(_Function):
@@ -176,15 +176,19 @@ class _Matmul(_Function):
         super(_Matmul, self).__init__(name)
 
     def forward(self, *args):
-        m = np.matmul(args[0].value, args[1].value).squeeze()
+        A = args[0].value
+        A = A.reshape(A.shape[0], -1)
+        B = args[1].value
+        B = B.reshape(B.shape[0], -1)
+        m = np.matmul(A, B).squeeze()
         self.out = Value(m, f"{args[0].name}@{args[1].name}", function_id=self.name)
 
         key1 = self.out.attach_node(args[0])
         key2 = self.out.attach_node(args[1])
 
         if self.out.requires_grad:
-            self.grad_info[key1] = args[1].value
-            self.grad_info[key2] = args[0].value
+            self.grad_info[key1] = B
+            self.grad_info[key2] = A
 
         return self.out
 
@@ -194,20 +198,25 @@ class _Matmul(_Function):
 
         self.out.add_grad(np.ones(self.out.shape))
         self.update_grad()
-        super().backward()
 
     # This should be called from a backward of a higher function
     def update_grad(self, ):
         [(name1, node1), (name2, node2)] = self.out.nodes.items()
 
-        dnode1 = self.grad_info[name1]
-        dnode2 = self.grad_info[name2]
+        dout = self.out.grad
+        dout = dout.reshape(dout.shape[0], -1)
 
-        dnode1 = self.out.grad @ dnode1.T
-        dnode2 = dnode2.T @ self.out.grad
+        if node1.requires_grad:
+            dnode1 = self.grad_info[name1]
+            dnode1 = dout @ dnode1.T
+            node1.add_grad(dnode1)
 
-        node1.add_grad(dnode1)
-        node2.add_grad(dnode2)
+        if node2.requires_grad:
+            dnode2 = self.grad_info[name2]
+            dnode2 = (dnode2.T @ dout).squeeze()
+            node2.add_grad(dnode2)
+
+        super().update_grad()
 
 
 class _Exp(_Function):
@@ -228,7 +237,6 @@ class _Exp(_Function):
     def backward(self, ):
         self.out.add_grad(np.ones(self.out.shape))
         self.update_grad()
-        super().backward()
 
     # This should be called from a backward of a higher function
     def update_grad(self, ):
@@ -237,7 +245,10 @@ class _Exp(_Function):
         dx = self.grad_info[name]
         dx *= self.out.grad
 
-        node.add_grad(dx)
+        if node.requires_grad:
+            node.add_grad(dx)
+
+        super().update_grad()
 
 
 class _Sigmoid(_Function):
@@ -258,7 +269,6 @@ class _Sigmoid(_Function):
     def backward(self, ):
         self.out.add_grad(np.ones(self.out.shape))
         self.update_grad()
-        super().backward()
 
     def update_grad(self, ):
         [(name, node)] = self.out.nodes.items()
@@ -266,7 +276,10 @@ class _Sigmoid(_Function):
         dx = self.grad_info[name] * (1 - self.grad_info[name])
         dx *= self.out.grad
 
-        node.add_grad(dx)
+        if node.requires_grad:
+            node.add_grad(dx)
+
+        super().update_grad()
 
 
 class _Linear(_Function):
@@ -274,7 +287,12 @@ class _Linear(_Function):
         super(_Linear, self).__init__(name)
 
     def forward(self, *args):
-        lin = (args[0].value @ args[1].value + args[2].value).squeeze()
+        X = args[0].value
+        X = X.reshape(X.shape[0], -1)
+        W = args[1].value
+        W = W.reshape(W.shape[0], -1)
+        b = args[2].value
+        lin = ((X @ W).squeeze() + b).squeeze()
         self.out = Value(lin, f"({args[0].name}@{args[1].name}+{args[2].name})", function_id=self.name)
 
         key1 = self.out.attach_node(args[0])
@@ -282,9 +300,9 @@ class _Linear(_Function):
         key3 = self.out.attach_node(args[2])
 
         if self.out.requires_grad:
-            self.grad_info[key1] = args[1].value
-            self.grad_info[key2] = args[0].value
-            self.grad_info[key3] = args[2].shape
+            self.grad_info[key1] = W
+            self.grad_info[key2] = X
+            self.grad_info[key3] = b.shape
 
         return self.out
 
@@ -294,24 +312,67 @@ class _Linear(_Function):
 
         self.out.add_grad(np.ones(self.out.shape))
         self.update_grad()
-        super().backward()
 
     # This should be called from a backward of a higher function
     def update_grad(self, ):
         [(name1, node1), (name2, node2), (name3, node3)] = self.out.nodes.items()
 
-        dnode1 = self.grad_info[name1]
-        dnode2 = self.grad_info[name2]
+        dout = self.out.grad
+        dout = dout.reshape(dout.shape[0], -1)
 
-        dnode1 = self.out.grad @ dnode1.T
-        dnode2 = dnode2.T @ self.out.grad
-        dnode3 = self.out.grad
-        if dnode3.ndim != len(self.grad_info[name3]):  # Broadcasting case
-            dnode3 = np.mean(dnode3, axis=0)
+        if node1.requires_grad:
+            dnode1 = self.grad_info[name1]
+            dnode1 = dout @ dnode1.T
+            node1.add_grad(dnode1)
 
-        node1.add_grad(dnode1)
-        node2.add_grad(dnode2)
-        node3.add_grad(dnode3)
+        if node2.requires_grad:
+            dnode2 = self.grad_info[name2]
+            dnode2 = (dnode2.T @ dout).squeeze()
+            node2.add_grad(dnode2)
+
+        if node3.requires_grad:
+            dnode3 = self.out.grad
+            if dnode3.ndim != len(self.grad_info[name3]):  # Broadcasting case
+                dnode3 = np.mean(dnode3, axis=0)
+            node3.add_grad(dnode3)
+
+        super().update_grad()
+
+
+class _BCELossWithLogits(_Function):
+    def __init__(self, name):
+        super(_BCELossWithLogits, self).__init__(name)
+
+    def forward(self, *args):
+        y_log = args[0].value
+        y_true = args[1].value
+        s = 1 / (1 + np.exp(-y_log)).squeeze()
+        loss = -np.mean(y_true * np.log(s) + (1 - y_true) * np.log(1 - s))
+        self.out = Value(loss, f"BCELossWithLogits({args[0].name})", function_id=self.name)
+
+        key1 = self.out.attach_node(args[0])
+        key2 = self.out.attach_node(args[1])
+
+        if self.out.requires_grad:
+            self.grad_info[key1] = s, y_true
+
+        return self.out
+
+    def backward(self, ):
+        self.out.add_grad(np.ones(self.out.shape))
+        self.update_grad()
+
+    def update_grad(self, ):
+        [(name1, node1), (name2, node2)] = self.out.nodes.items()
+
+        if not node1.requires_grad:
+            return
+
+        s, y_true = self.grad_info[name1]
+        dy = (s - y_true) * self.out.grad
+        node1.add_grad(dy)
+
+        super().update_grad()
 
 
 def add(a, b, return_func=False):
@@ -390,3 +451,13 @@ def linear(X, W, b, return_func=False):
         return y, func
 
     return y
+
+
+def bce_loss_with_logits(y, y_true):
+    loss = _FunctionFactory().get_new_function_of_type(_BCELossWithLogits)
+    if loss is None:
+        print(f"Failed to get BCE loss")
+        return
+
+    y = loss.forward(y, y_true)
+    return y, loss

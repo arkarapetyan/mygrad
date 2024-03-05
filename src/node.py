@@ -8,19 +8,19 @@ class GraphNode(object):
 
         self.requires_grad = requires_grad
         self.grad = None
+        self.active_grad = None
         self.requires_grad_(requires_grad)
         self.function_id = function_id
 
     def attach_node(self, node):
-        key = node.name
-        if key is None:
-            key = f"node{len(self.nodes)}"
-        self.nodes[key] = node
+        if node.name in self.nodes.keys():
+            return node.name
 
+        self.nodes[node.name] = node
         if node.requires_grad and (not self.requires_grad):
             self.requires_grad_(True)
 
-        return key
+        return node.name
 
     def detach_node_by_name(self, name):
         if name not in self.nodes.keys():
@@ -34,6 +34,7 @@ class GraphNode(object):
         if val:
             self.requires_grad = True
             self.grad = 0.0
+            self.active_grad = False
         else:
             self.requires_grad = False
 
@@ -42,3 +43,12 @@ class GraphNode(object):
             return
 
         self.grad += dx
+        self.active_grad = True
+
+    def zero_grad(self):
+        self.grad = 0.0
+        self.active_grad = False
+
+        for node in self.nodes.values():
+            if node.requires_grad and node.active_grad:
+                node.zero_grad()
