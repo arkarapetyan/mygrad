@@ -80,6 +80,10 @@ class _FunctionFactory(metaclass=_SingletonMeta):
             name = f"bce_loss_logit_{num}"
             print(name)
             return name, _BCELossWithLogits(name)
+        elif f_type == _MSELoss:
+            name = f"mse_loss_{num}"
+            print(name)
+            return name, _MSELoss(name)
 
 
 class _Function(object):
@@ -375,6 +379,41 @@ class _BCELossWithLogits(_Function):
         super().update_grad()
 
 
+class _MSELoss(_Function):
+    def __init__(self, name):
+        super(_MSELoss, self).__init__(name)
+
+    def forward(self, *args):
+        y = args[0].value
+        y_true = args[1].value
+        loss = np.mean((y_true - y)**2)
+        self.out = Value(loss, f"MSELoss({args[0].name})", function_id=self.name)
+
+        key1 = self.out.attach_node(args[0])
+        key2 = self.out.attach_node(args[1])
+
+        if self.out.requires_grad:
+            self.grad_info[key1] = y, y_true
+
+        return self.out
+
+    def backward(self, ):
+        self.out.add_grad(np.ones(self.out.shape))
+        self.update_grad()
+
+    def update_grad(self, ):
+        [(name1, node1), (name2, node2)] = self.out.nodes.items()
+
+        if not node1.requires_grad:
+            return
+
+        y, y_true = self.grad_info[name1]
+        dy = 2 * (y - y_true) * self.out.grad
+        node1.add_grad(dy)
+
+        super().update_grad()
+
+
 def add(a, b, return_func=False):
     func = _FunctionFactory().get_new_function_of_type(_Add)
     if func is None:
@@ -457,6 +496,16 @@ def bce_loss_with_logits(y, y_true):
     loss = _FunctionFactory().get_new_function_of_type(_BCELossWithLogits)
     if loss is None:
         print(f"Failed to get BCE loss")
+        return
+
+    y = loss.forward(y, y_true)
+    return y, loss
+
+
+def mse_loss(y, y_true):
+    loss = _FunctionFactory().get_new_function_of_type(_MSELoss)
+    if loss is None:
+        print(f"Failed to get MSE loss")
         return
 
     y = loss.forward(y, y_true)
