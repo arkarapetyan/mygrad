@@ -87,22 +87,49 @@ class _FunctionFactory(metaclass=_SingletonMeta):
 
 
 class _Function(object):
-    def __init__(self, name):
+    def __init__(self, name, forward_func, backward_func):
         self.name = name
         self.grad_info = {}
+        self.forward_func = forward_func
+        self.backward_func = backward_func
+        self.n_var = None
         self.out = None
 
     def forward(self, *args):
-        pass
+        if len(args) != self.n_var:
+            raise Exception(f"Invalid number of parameters in function {self.name}. Expected {self.n_var}" ""
+                            ", got {len(args)}")
+
+        self.out = self.forward_func(args[:self.n_var])
+        for i in range(self.n_var):
+            self.out.attach_node(args[i])
+
+        if self.out.requires_grad:
+            self._save_grad_info(args[:self.n_var])
+
+        return self.out
 
     def backward(self, ):
-        pass
+        if self.out is None:
+            raise Exception(f"Function not Computed, please call forward() first")
 
-    def update_grad(self, ):
-        for node in self.out.nodes.values():
-            if node.function_id is not None:
-                func = _FunctionFactory().get_active_function_by_name(node.function_id)
-                func.update_grad()
+        self.out.add_grad(np.ones(self.out.shape))
+        self._update_grad()
+
+    def _update_grad(self, ):
+        grads = self.backward_func()
+
+        for name, node in self.out.nodes.items():
+            node.add_grad(grads[name])
+
+            if node.function_id is None:
+                continue
+
+            func = _FunctionFactory().get_active_function_by_name(node.function_id)
+            func._update_grad()
+
+    def _save_grad_info(self, args):
+        pass
 
 
 class _Add(_Function):
@@ -124,10 +151,10 @@ class _Add(_Function):
 
     def backward(self, ):
         self.out.add_grad(np.ones(self.out.shape))
-        self.update_grad()
+        self._update_grad()
 
     # This should be called from a backward of a higher function
-    def update_grad(self, ):
+    def _update_grad(self, ):
         for name, node in self.out.nodes.items():
             if not node.requires_grad:
                 continue
@@ -137,7 +164,7 @@ class _Add(_Function):
                 dx = np.mean(dx, axis=0)
             node.add_grad(dx)
 
-        super().update_grad()
+        super()._update_grad()
 
 
 class _Mul(_Function):
@@ -159,10 +186,10 @@ class _Mul(_Function):
 
     def backward(self, ):
         self.out.add_grad(np.ones(self.out.shape))
-        self.update_grad()
+        self._update_grad()
 
     # This should be called from a backward of a higher function
-    def update_grad(self, ):
+    def _update_grad(self, ):
         for name, node in self.out.nodes.items():
             if not node.requires_grad:
                 continue
@@ -172,7 +199,7 @@ class _Mul(_Function):
                 dx = np.mean(dx, axis=0)
             node.add_grad(dx)
 
-        super().update_grad()
+        super()._update_grad()
 
 
 class _Matmul(_Function):
@@ -201,10 +228,10 @@ class _Matmul(_Function):
             return
 
         self.out.add_grad(np.ones(self.out.shape))
-        self.update_grad()
+        self._update_grad()
 
     # This should be called from a backward of a higher function
-    def update_grad(self, ):
+    def _update_grad(self, ):
         [(name1, node1), (name2, node2)] = self.out.nodes.items()
 
         dout = self.out.grad
@@ -220,7 +247,7 @@ class _Matmul(_Function):
             dnode2 = (dnode2.T @ dout).squeeze()
             node2.add_grad(dnode2)
 
-        super().update_grad()
+        super()._update_grad()
 
 
 class _Exp(_Function):
@@ -240,10 +267,10 @@ class _Exp(_Function):
 
     def backward(self, ):
         self.out.add_grad(np.ones(self.out.shape))
-        self.update_grad()
+        self._update_grad()
 
     # This should be called from a backward of a higher function
-    def update_grad(self, ):
+    def _update_grad(self, ):
         [(name, node)] = self.out.nodes.items()
 
         dx = self.grad_info[name]
@@ -252,7 +279,7 @@ class _Exp(_Function):
         if node.requires_grad:
             node.add_grad(dx)
 
-        super().update_grad()
+        super()._update_grad()
 
 
 class _Sigmoid(_Function):
@@ -272,9 +299,9 @@ class _Sigmoid(_Function):
 
     def backward(self, ):
         self.out.add_grad(np.ones(self.out.shape))
-        self.update_grad()
+        self._update_grad()
 
-    def update_grad(self, ):
+    def _update_grad(self, ):
         [(name, node)] = self.out.nodes.items()
 
         dx = self.grad_info[name] * (1 - self.grad_info[name])
@@ -283,7 +310,7 @@ class _Sigmoid(_Function):
         if node.requires_grad:
             node.add_grad(dx)
 
-        super().update_grad()
+        super()._update_grad()
 
 
 class _Linear(_Function):
@@ -315,10 +342,10 @@ class _Linear(_Function):
             return
 
         self.out.add_grad(np.ones(self.out.shape))
-        self.update_grad()
+        self._update_grad()
 
     # This should be called from a backward of a higher function
-    def update_grad(self, ):
+    def _update_grad(self, ):
         [(name1, node1), (name2, node2), (name3, node3)] = self.out.nodes.items()
 
         dout = self.out.grad
@@ -340,7 +367,7 @@ class _Linear(_Function):
                 dnode3 = np.mean(dnode3, axis=0)
             node3.add_grad(dnode3)
 
-        super().update_grad()
+        super()._update_grad()
 
 
 class _BCELossWithLogits(_Function):
@@ -364,9 +391,9 @@ class _BCELossWithLogits(_Function):
 
     def backward(self, ):
         self.out.add_grad(np.ones(self.out.shape))
-        self.update_grad()
+        self._update_grad()
 
-    def update_grad(self, ):
+    def _update_grad(self, ):
         [(name1, node1), (name2, node2)] = self.out.nodes.items()
 
         if not node1.requires_grad:
@@ -376,7 +403,7 @@ class _BCELossWithLogits(_Function):
         dy = (s - y_true) * self.out.grad
         node1.add_grad(dy)
 
-        super().update_grad()
+        super()._update_grad()
 
 
 class _MSELoss(_Function):
@@ -399,9 +426,9 @@ class _MSELoss(_Function):
 
     def backward(self, ):
         self.out.add_grad(np.ones(self.out.shape))
-        self.update_grad()
+        self._update_grad()
 
-    def update_grad(self, ):
+    def _update_grad(self, ):
         [(name1, node1), (name2, node2)] = self.out.nodes.items()
 
         if not node1.requires_grad:
@@ -411,7 +438,7 @@ class _MSELoss(_Function):
         dy = 2 * (y - y_true) * self.out.grad
         node1.add_grad(dy)
 
-        super().update_grad()
+        super()._update_grad()
 
 
 def add(a, b, return_func=False):
