@@ -16,5 +16,3 @@ class Value(GraphNode):
     def __repr__(self):
         return (f"Value(data={self.value}, shape={self.shape}, name={self.name}, requires_grad={self.requires_grad}), "
                 f"dtype={self.dtype}")
-
-

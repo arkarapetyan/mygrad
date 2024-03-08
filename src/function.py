@@ -1,98 +1,17 @@
 # function.py
 import numpy as np
 
+import function_factory as factory
 from .value import Value
 
 
-class _SingletonMeta(type):
-    _instances = {}
-
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            instance = super().__call__(*args, **kwargs)
-            cls._instances[cls] = instance
-        return cls._instances[cls]
-
-
-class _FunctionFactory(metaclass=_SingletonMeta):
-    _active_instances = {}
-    _free_instances = {}
-
-    def get_new_function_of_type(self, f_type):
-        if len(self._free_instances) != 0:
-            name, func = self._free_instances[f_type].popitem()
-        else:
-            name, func = self._create_function_of_type(f_type)
-
-        if f_type not in self._active_instances:
-            self._active_instances[f_type] = {}
-
-        self._active_instances[f_type][name] = func
-
-        return func
-
-    def get_active_function_by_name(self, name):
-        func = None
-        for t in self._active_instances.keys():
-            if name not in self._active_instances[t]:
-                continue
-
-            func = self._active_instances[t][name]
-
-        if func is None:
-            print(f"Active Function not Found: {name}")
-
-        return func
-
-    def _create_function_of_type(self, f_type):
-        num = 0
-        if f_type in self._active_instances.keys():
-            num += len(self._active_instances[f_type])
-        if f_type in self._free_instances.keys():
-            num += len(self._free_instances[f_type])
-
-        print(f"Creating Function of type {f_type} with name", end=" ")
-        if f_type == _Add:
-            name = f"add_{num}"
-            print(name)
-            return name, _Add(name)
-        elif f_type == _Mul:
-            name = f"mul_{num}"
-            print(name)
-            return name, _Mul(name)
-        elif f_type == _Matmul:
-            name = f"matmul_{num}"
-            print(name)
-            return name, _Matmul(name)
-        elif f_type == _Exp:
-            name = f"exp_{num}"
-            print(name)
-            return name, _Exp(name)
-        elif f_type == _Sigmoid:
-            name = f"sigmoid_{num}"
-            print(name)
-            return name, _Sigmoid(name)
-        elif f_type == _Linear:
-            name = f"linear_{num}"
-            print(name)
-            return name, _Linear(name)
-        elif f_type == _BCELossWithLogits:
-            name = f"bce_loss_logit_{num}"
-            print(name)
-            return name, _BCELossWithLogits(name)
-        elif f_type == _MSELoss:
-            name = f"mse_loss_{num}"
-            print(name)
-            return name, _MSELoss(name)
-
-
-class _Function(object):
-    def __init__(self, name, forward_func, backward_func):
+class Function(object):
+    def __init__(self, name, forward_func, backward_func, n_var):
         self.name = name
-        self.grad_info = {}
         self.forward_func = forward_func
         self.backward_func = backward_func
-        self.n_var = None
+        self.n_var = n_var
+        self.grad_info = None
         self.out = None
 
     def forward(self, *args):
@@ -100,7 +19,7 @@ class _Function(object):
             raise Exception(f"Invalid number of parameters in function {self.name}. Expected {self.n_var}" ""
                             ", got {len(args)}")
 
-        self.out = self.forward_func(args[:self.n_var])
+        self.out = self.forward_func(*args[:self.n_var])
         for i in range(self.n_var):
             self.out.attach_node(args[i])
 
@@ -111,289 +30,239 @@ class _Function(object):
 
     def backward(self, ):
         if self.out is None:
-            raise Exception(f"Function not Computed, please call forward() first")
+            raise Exception(f"Function not Computed, call forward() first")
 
         self.out.add_grad(np.ones(self.out.shape))
-        self._update_grad()
+        self.__update_grad()
 
-    def _update_grad(self, ):
+    def __update_grad(self, ):
+        if self.grad_info is None:
+            raise Exception(f"Failed to get grad info, make sure that parameters require grad and call forward() first")
         grads = self.backward_func()
 
         for name, node in self.out.nodes.items():
-            node.add_grad(grads[name])
-
-            if node.function_id is None:
+            if not node.requires_grad:
                 continue
 
-            func = _FunctionFactory().get_active_function_by_name(node.function_id)
-            func._update_grad()
+            node.add_grad(grads[name])
+            if node.function_id is None:
+                continue
+            func = factory.FunctionFactory().get_active_function_by_name(node.function_id)
+            func.__update_grad()
 
     def _save_grad_info(self, args):
         pass
 
 
-class _Add(_Function):
+class Add(Function):
     def __init__(self, name):
-        super(_Add, self).__init__(name)
+        super(Add, self).__init__(name, self.__add_forward, self.__add_backward, 2)
 
-    def forward(self, *args):
-        s = (args[0].value + args[1].value).squeeze()
-        self.out = Value(s, f"({args[0].name}+{args[1].name})", function_id=self.name)
-
-        key1 = self.out.attach_node(args[0])
-        key2 = self.out.attach_node(args[1])
-
-        if self.out.requires_grad:
-            self.grad_info[key1] = args[0].shape
-            self.grad_info[key2] = args[1].shape
+    def __add_forward(self, a, b):
+        s = (a.value + b.value).squeeze()
+        self.out = Value(s, f"({a.name}+{b.name})", function_id=self.name)
 
         return self.out
 
-    def backward(self, ):
-        self.out.add_grad(np.ones(self.out.shape))
-        self._update_grad()
+    def __add_backward(self,):
+        grads = {}
 
-    # This should be called from a backward of a higher function
-    def _update_grad(self, ):
-        for name, node in self.out.nodes.items():
-            if not node.requires_grad:
-                continue
-
-            dx = self.out.grad * np.ones(self.grad_info[name])
-            if dx.ndim != len(self.grad_info[name]):  # Broadcasting case
+        for name, shape in self.grad_info.items():
+            dx = self.out.grad * np.ones(shape)
+            if dx.ndim != len(shape):   # Broadcasting case
                 dx = np.mean(dx, axis=0)
-            node.add_grad(dx)
+            grads[name] = dx
 
-        super()._update_grad()
+        return grads
+
+    def _save_grad_info(self, args):
+        self.grad_info = {}
+
+        if args[0].requires_grad:
+            self.grad_info[args[0].name] = args[0].shape
+        if args[1].requires_grad:
+            self.grad_info[args[1].name] = args[1].shape
 
 
-class _Mul(_Function):
+class Mul(Function):
     def __init__(self, name):
-        super(_Mul, self).__init__(name)
+        super(Mul, self).__init__(name, self.__mul_forward, self.__mul_backward, 2)
 
-    def forward(self, *args):
-        m = (args[0].value * args[1].value).squeeze()
-        self.out = Value(m, f"{args[0].name}*{args[1].name}", function_id=self.name)
-
-        key1 = self.out.attach_node(args[0])
-        key2 = self.out.attach_node(args[1])
-
-        if self.out.requires_grad:
-            self.grad_info[key1] = args[1].value
-            self.grad_info[key2] = args[0].value
+    def __mul_forward(self, a, b):
+        m = (a.value * b.value).squeeze()
+        self.out = Value(m, f"{a.name}*{b.name}", function_id=self.name)
 
         return self.out
 
-    def backward(self, ):
-        self.out.add_grad(np.ones(self.out.shape))
-        self._update_grad()
+    def __mul_backward(self, ):
+        grads = {}
 
-    # This should be called from a backward of a higher function
-    def _update_grad(self, ):
-        for name, node in self.out.nodes.items():
-            if not node.requires_grad:
-                continue
-
-            dx = self.out.grad * self.grad_info[name]
-            if dx.ndim > self.out.ndim:
+        for name, (shape, dx) in self.grad_info.items():
+            dx *= self.out.grad
+            if dx.ndim != len(shape):   # Broadcasting case
                 dx = np.mean(dx, axis=0)
-            node.add_grad(dx)
+            grads[name] = dx
 
-        super()._update_grad()
+        return grads
+
+    def _save_grad_info(self, args):
+        self.grad_info = {}
+
+        if args[0].requires_grad:
+            self.grad_info[args[0].name] = (args[0].shape, args[1].value)
+        if args[1].requires_grad:
+            self.grad_info[args[1].name] = (args[1].shape, args[0].value)
 
 
-class _Matmul(_Function):
+class Matmul(Function):
     def __init__(self, name):
-        super(_Matmul, self).__init__(name)
+        super(Matmul, self).__init__(name, self.__matmul_forward, self.__matmul_backward, 2)
 
-    def forward(self, *args):
-        A = args[0].value
+    def __matmul_forward(self, A, B):
         A = A.reshape(A.shape[0], -1)
-        B = args[1].value
         B = B.reshape(B.shape[0], -1)
-        m = np.matmul(A, B).squeeze()
-        self.out = Value(m, f"{args[0].name}@{args[1].name}", function_id=self.name)
-
-        key1 = self.out.attach_node(args[0])
-        key2 = self.out.attach_node(args[1])
-
-        if self.out.requires_grad:
-            self.grad_info[key1] = B
-            self.grad_info[key2] = A
+        M = np.matmul(A, B).squeeze()
+        self.out = Value(M, f"{A.name}@{B.name}", function_id=self.name)
 
         return self.out
 
-    def backward(self, ):
-        if self.out.ndim > 1:
-            return
+    def __matmul_backward(self, ):
+        grads = {}
 
-        self.out.add_grad(np.ones(self.out.shape))
-        self._update_grad()
+        dy = self.out.grad
+        dy = dy.reshape(dy.shape[0], -1)
 
-    # This should be called from a backward of a higher function
-    def _update_grad(self, ):
-        [(name1, node1), (name2, node2)] = self.out.nodes.items()
+        for name, (mul_side, dx) in self.grad_info.items():
+            if mul_side == "L":
+                dx = (dy @ dx.T).squeeze()
+            elif mul_side == "R":
+                dx = (dx.T @ dy).squeeze()
 
-        dout = self.out.grad
-        dout = dout.reshape(dout.shape[0], -1)
+            grads[name] = dx
 
-        if node1.requires_grad:
-            dnode1 = self.grad_info[name1]
-            dnode1 = dout @ dnode1.T
-            node1.add_grad(dnode1)
+        return grads
 
-        if node2.requires_grad:
-            dnode2 = self.grad_info[name2]
-            dnode2 = (dnode2.T @ dout).squeeze()
-            node2.add_grad(dnode2)
+    def _save_grad_info(self, args):
+        self.grad_info = {}
 
-        super()._update_grad()
+        if args[0].requires_grad:
+            self.grad_info[args[0].name] = ("L", args[1].value)
+        if args[1].requires_grad:
+            self.grad_info[args[1].name] = ("R", args[0].value)
 
 
-class _Exp(_Function):
+class Exp(Function):
     def __init__(self, name):
-        super(_Exp, self).__init__(name)
+        super(Exp, self).__init__(name, self.__exp_forward, self.__exp_backward, 1)
 
-    def forward(self, *args):
-        e = np.exp(args[0].value).squeeze()
-        self.out = Value(e, f"exp({args[0].name})", function_id=self.name)
-
-        key = self.out.attach_node(args[0])
-
-        if self.out.requires_grad:
-            self.grad_info[key] = e
+    def __exp_forward(self, x):
+        e = np.exp(x.value).squeeze()
+        self.out = Value(e, f"exp({x.name})", function_id=self.name)
 
         return self.out
 
-    def backward(self, ):
-        self.out.add_grad(np.ones(self.out.shape))
-        self._update_grad()
+    def __exp_backward(self, ):
+        grads = {}
 
-    # This should be called from a backward of a higher function
-    def _update_grad(self, ):
-        [(name, node)] = self.out.nodes.items()
+        for name, dx in self.grad_info.items():
+            dx *= self.out.grad
+            grads[name] = dx
 
-        dx = self.grad_info[name]
-        dx *= self.out.grad
+        return grads
 
-        if node.requires_grad:
-            node.add_grad(dx)
+    def _save_grad_info(self, args):
+        self.grad_info = {}
 
-        super()._update_grad()
+        if args[0].requires_grad:
+            self.grad_info[args[0].name] = self.out.value
 
 
-class _Sigmoid(_Function):
+class Sigmoid(Function):
     def __init__(self, name):
-        super(_Sigmoid, self).__init__(name)
+        super(Sigmoid, self).__init__(name, self.__sigmoid_forward, self.__sigmoid_backward, 1)
 
-    def forward(self, *args):
-        s = 1 / (1 + np.exp(-args[0].value)).squeeze()
-        self.out = Value(s, f"sigma({args[0].name})", function_id=self.name)
-
-        key = self.out.attach_node(args[0])
-
-        if self.out.requires_grad:
-            self.grad_info[key] = s
+    def __sigmoid_forward(self, x):
+        s = 1 / (1 + np.exp(-x.value)).squeeze()
+        self.out = Value(s, f"sigmoid({x.name})", function_id=self.name)
 
         return self.out
 
-    def backward(self, ):
-        self.out.add_grad(np.ones(self.out.shape))
-        self._update_grad()
+    def __sigmoid_backward(self, ):
+        grads = {}
 
-    def _update_grad(self, ):
-        [(name, node)] = self.out.nodes.items()
+        for name, dx in self.grad_info.items():
+            dx *= self.out.grad
+            grads[name] = dx
 
-        dx = self.grad_info[name] * (1 - self.grad_info[name])
-        dx *= self.out.grad
+        return grads
 
-        if node.requires_grad:
-            node.add_grad(dx)
+    def _save_grad_info(self, args):
+        self.grad_info = {}
 
-        super()._update_grad()
+        if args[0].requires_grad:
+            self.grad_info[args[0].name] = self.out.value
 
 
-class _Linear(_Function):
+class Linear(Function):
     def __init__(self, name):
-        super(_Linear, self).__init__(name)
+        super(Linear, self).__init__(name, self.__linear_forward, self.__linear_backward, 3)
 
-    def forward(self, *args):
-        X = args[0].value
-        X = X.reshape(X.shape[0], -1)
-        W = args[1].value
-        W = W.reshape(W.shape[0], -1)
-        b = args[2].value
-        lin = ((X @ W).squeeze() + b).squeeze()
-        self.out = Value(lin, f"({args[0].name}@{args[1].name}+{args[2].name})", function_id=self.name)
-
-        key1 = self.out.attach_node(args[0])
-        key2 = self.out.attach_node(args[1])
-        key3 = self.out.attach_node(args[2])
-
-        if self.out.requires_grad:
-            self.grad_info[key1] = W
-            self.grad_info[key2] = X
-            self.grad_info[key3] = b.shape
+    def __linear_forward(self, X, W, b):
+        X_val = X.value.reshape(X.shape[0], -1)
+        W_val = W.value.reshape(W.shape[0], -1)
+        b_val = b.value
+        lin = ((X_val @ W_val).squeeze() + b_val).squeeze()
+        self.out = Value(lin, f"({X.name}@{W.name}+{b.name})", function_id=self.name)
 
         return self.out
 
-    def backward(self, ):
-        if self.out.ndim > 1:
-            return
+    def __linear_backward(self, ):
+        grads = {}
 
-        self.out.add_grad(np.ones(self.out.shape))
-        self._update_grad()
+        dy = self.out.grad
+        dy = dy.reshape(dy.shape[0], -1)
 
-    # This should be called from a backward of a higher function
-    def _update_grad(self, ):
-        [(name1, node1), (name2, node2), (name3, node3)] = self.out.nodes.items()
+        for name, (p, dx, shape) in self.grad_info.items():
+            if p == "X":
+                dx = (dy @ dx.T).squeeze()
+            elif p == "W":
+                dx = (dx.T @ dy).squeeze()
+            elif p == "b":
+                dx = self.out.grad * np.ones(shape)
+                if dx.ndim != len(shape):  # Broadcasting case
+                    dx = np.mean(dx, axis=0)
 
-        dout = self.out.grad
-        dout = dout.reshape(dout.shape[0], -1)
+            grads[name] = dx
 
-        if node1.requires_grad:
-            dnode1 = self.grad_info[name1]
-            dnode1 = dout @ dnode1.T
-            node1.add_grad(dnode1)
+        return grads
 
-        if node2.requires_grad:
-            dnode2 = self.grad_info[name2]
-            dnode2 = (dnode2.T @ dout).squeeze()
-            node2.add_grad(dnode2)
-
-        if node3.requires_grad:
-            dnode3 = self.out.grad
-            if dnode3.ndim != len(self.grad_info[name3]):  # Broadcasting case
-                dnode3 = np.mean(dnode3, axis=0)
-            node3.add_grad(dnode3)
-
-        super()._update_grad()
+    def _save_grad_info(self, args):
+        if args[0].requires_grad:
+            self.grad_info[args[0].name] = ("X", args[1].value, args[0].shape)
+        if args[1].requires_grad:
+            self.grad_info[args[1].name] = ("W", args[0].value, args[1].shape)
+        if args[2].requires_grad:
+            self.grad_info[args[2].name] = ("b", args[2].value, args[2].shape)
 
 
-class _BCELossWithLogits(_Function):
+class BCELossWithLogits(Function):
     def __init__(self, name):
-        super(_BCELossWithLogits, self).__init__(name)
+        super(BCELossWithLogits, self).__init__(name, self.__bce_forward, self.__bce_backward, 2)
+        self.__sigmoid = None
 
-    def forward(self, *args):
-        y_log = args[0].value
-        y_true = args[1].value
-        s = 1 / (1 + np.exp(-y_log)).squeeze()
-        loss = -np.mean(y_true * np.log(s) + (1 - y_true) * np.log(1 - s))
-        self.out = Value(loss, f"BCELossWithLogits({args[0].name})", function_id=self.name)
-
-        key1 = self.out.attach_node(args[0])
-        key2 = self.out.attach_node(args[1])
-
-        if self.out.requires_grad:
-            self.grad_info[key1] = s, y_true
+    def __bce_forward(self, y, y_true):
+        s = 1 / (1 + np.exp(-y.value)).squeeze()
+        loss = -np.mean(y_true.value * np.log(s) + (1 - y_true.value) * np.log(1 - s))
+        self.out = Value(loss, f"BCELossWithLogits({y.name})", function_id=self.name)
+        self.__sigmoid = s
 
         return self.out
 
-    def backward(self, ):
-        self.out.add_grad(np.ones(self.out.shape))
-        self._update_grad()
+    def __bce_backward(self, ):
+        grads = {}
 
-    def _update_grad(self, ):
+        for name, (s,  in self.grad_info.items():
+
         [(name1, node1), (name2, node2)] = self.out.nodes.items()
 
         if not node1.requires_grad:
@@ -403,12 +272,16 @@ class _BCELossWithLogits(_Function):
         dy = (s - y_true) * self.out.grad
         node1.add_grad(dy)
 
-        super()._update_grad()
+        super().__update_grad()
+
+    def _save_grad_info(self, args):
+        if args[0].requires_grad:
+            self.grad_info[args[0]] = (self.out.value, self.__sigmoid)
 
 
-class _MSELoss(_Function):
+class MSELoss(Function):
     def __init__(self, name):
-        super(_MSELoss, self).__init__(name)
+        super(MSELoss, self).__init__(name)
 
     def forward(self, *args):
         y = args[0].value
@@ -426,9 +299,9 @@ class _MSELoss(_Function):
 
     def backward(self, ):
         self.out.add_grad(np.ones(self.out.shape))
-        self._update_grad()
+        self.__update_grad()
 
-    def _update_grad(self, ):
+    def __update_grad(self, ):
         [(name1, node1), (name2, node2)] = self.out.nodes.items()
 
         if not node1.requires_grad:
@@ -438,11 +311,11 @@ class _MSELoss(_Function):
         dy = 2 * (y - y_true) * self.out.grad
         node1.add_grad(dy)
 
-        super()._update_grad()
+        super().__update_grad()
 
 
 def add(a, b, return_func=False):
-    func = _FunctionFactory().get_new_function_of_type(_Add)
+    func = factory.FunctionFactory().get_new_function_of_type(Add)
     if func is None:
         print(f"Failed to get function of type _Add")
         return
@@ -455,7 +328,7 @@ def add(a, b, return_func=False):
 
 
 def mul(a, b, return_func=False):
-    func = _FunctionFactory().get_new_function_of_type(_Mul)
+    func = factory.FunctionFactory().get_new_function_of_type(Mul)
     if func is None:
         print(f"Failed to get function of type _Mul")
         return
@@ -468,7 +341,7 @@ def mul(a, b, return_func=False):
 
 
 def matmul(A, B, return_func=False):
-    func = _FunctionFactory().get_new_function_of_type(_Matmul)
+    func = factory.FunctionFactory().get_new_function_of_type(Matmul)
     if func is None:
         print(f"Failed to get function of type _Matmul")
         return
@@ -481,7 +354,7 @@ def matmul(A, B, return_func=False):
 
 
 def exp(x, return_func=False):
-    func = _FunctionFactory().get_new_function_of_type(_Exp)
+    func = factory.FunctionFactory().get_new_function_of_type(Exp)
     if func is None:
         print(f"Failed to get function of type _Exp")
         return
@@ -494,7 +367,7 @@ def exp(x, return_func=False):
 
 
 def sigmoid(x, return_func=False):
-    func = _FunctionFactory().get_new_function_of_type(_Sigmoid)
+    func = factory.FunctionFactory().get_new_function_of_type(Sigmoid)
     if func is None:
         print(f"Failed to get function of type _Sigmoid")
         return
@@ -507,7 +380,7 @@ def sigmoid(x, return_func=False):
 
 
 def linear(X, W, b, return_func=False):
-    func = _FunctionFactory().get_new_function_of_type(_Linear)
+    func = factory.FunctionFactory().get_new_function_of_type(Linear)
     if func is None:
         print(f"Failed to get function of type _Linear")
         return
@@ -520,7 +393,7 @@ def linear(X, W, b, return_func=False):
 
 
 def bce_loss_with_logits(y, y_true):
-    loss = _FunctionFactory().get_new_function_of_type(_BCELossWithLogits)
+    loss = factory.FunctionFactory().get_new_function_of_type(BCELossWithLogits)
     if loss is None:
         print(f"Failed to get BCE loss")
         return
@@ -530,7 +403,7 @@ def bce_loss_with_logits(y, y_true):
 
 
 def mse_loss(y, y_true):
-    loss = _FunctionFactory().get_new_function_of_type(_MSELoss)
+    loss = factory.FunctionFactory().get_new_function_of_type(MSELoss)
     if loss is None:
         print(f"Failed to get MSE loss")
         return
