@@ -2,15 +2,16 @@
 import numpy as np
 
 import function_factory as factory
-from .value import Value
+from mygrad.value import Value
 
 
 class Function(object):
-    def __init__(self, name, forward_func, backward_func, n_var):
+    def __init__(self, name, forward_func, backward_func, n_var, *args):
         self.name = name
         self.forward_func = forward_func
         self.backward_func = backward_func
         self.n_var = n_var
+        self.forward_cache = {}   # This should be refactored
         self.grad_info = None
         self.out = None
 
@@ -60,9 +61,8 @@ class Add(Function):
 
     def __add_forward(self, a, b):
         s = (a.value + b.value).squeeze()
-        self.out = Value(s, f"({a.name}+{b.name})", function_id=self.name)
 
-        return self.out
+        return Value(s, f"({a.name}+{b.name})", function_id=self.name)
 
     def __add_backward(self,):
         grads = {}
@@ -90,9 +90,8 @@ class Mul(Function):
 
     def __mul_forward(self, a, b):
         m = (a.value * b.value).squeeze()
-        self.out = Value(m, f"{a.name}*{b.name}", function_id=self.name)
 
-        return self.out
+        return Value(m, f"{a.name}*{b.name}", function_id=self.name)
 
     def __mul_backward(self, ):
         grads = {}
@@ -122,9 +121,8 @@ class Matmul(Function):
         A = A.reshape(A.shape[0], -1)
         B = B.reshape(B.shape[0], -1)
         M = np.matmul(A, B).squeeze()
-        self.out = Value(M, f"{A.name}@{B.name}", function_id=self.name)
 
-        return self.out
+        return Value(M, f"{A.name}@{B.name}", function_id=self.name)
 
     def __matmul_backward(self, ):
         grads = {}
@@ -157,9 +155,9 @@ class Exp(Function):
 
     def __exp_forward(self, x):
         e = np.exp(x.value).squeeze()
-        self.out = Value(e, f"exp({x.name})", function_id=self.name)
+        self.forward_cache["exp"] = e
 
-        return self.out
+        return Value(e, f"exp({x.name})", function_id=self.name)
 
     def __exp_backward(self, ):
         grads = {}
@@ -174,7 +172,7 @@ class Exp(Function):
         self.grad_info = {}
 
         if args[0].requires_grad:
-            self.grad_info[args[0].name] = self.out.value
+            self.grad_info[args[0].name] = self.forward_cache["exp"]
 
 
 class Sigmoid(Function):
@@ -183,9 +181,9 @@ class Sigmoid(Function):
 
     def __sigmoid_forward(self, x):
         s = 1 / (1 + np.exp(-x.value)).squeeze()
-        self.out = Value(s, f"sigmoid({x.name})", function_id=self.name)
+        self.forward_cache["sigmoid"] = s
 
-        return self.out
+        return Value(s, f"sigmoid({x.name})", function_id=self.name)
 
     def __sigmoid_backward(self, ):
         grads = {}
@@ -200,7 +198,7 @@ class Sigmoid(Function):
         self.grad_info = {}
 
         if args[0].requires_grad:
-            self.grad_info[args[0].name] = self.out.value
+            self.grad_info[args[0].name] = self.forward_cache["sigmoid"]
 
 
 class Linear(Function):
@@ -212,9 +210,8 @@ class Linear(Function):
         W_val = W.value.reshape(W.shape[0], -1)
         b_val = b.value
         lin = ((X_val @ W_val).squeeze() + b_val).squeeze()
-        self.out = Value(lin, f"({X.name}@{W.name}+{b.name})", function_id=self.name)
 
-        return self.out
+        return Value(lin, f"({X.name}@{W.name}+{b.name})", function_id=self.name)
 
     def __linear_backward(self, ):
         grads = {}
@@ -248,165 +245,47 @@ class Linear(Function):
 class BCELossWithLogits(Function):
     def __init__(self, name):
         super(BCELossWithLogits, self).__init__(name, self.__bce_forward, self.__bce_backward, 2)
-        self.__sigmoid = None
 
     def __bce_forward(self, y, y_true):
         s = 1 / (1 + np.exp(-y.value)).squeeze()
-        loss = -np.mean(y_true.value * np.log(s) + (1 - y_true.value) * np.log(1 - s))
-        self.out = Value(loss, f"BCELossWithLogits({y.name})", function_id=self.name)
-        self.__sigmoid = s
+        loss = -np.mean(y_true.value * np.log(s) + (1 - y_true.value) * np.log(1 - s)).squeeze()
+        self.forward_cache["sigmoid"] = s
+        self.forward_cache["y_true"] = y_true.value
 
-        return self.out
+        return Value(loss, f"BCELossWithLogits({y.name})", function_id=self.name)
 
     def __bce_backward(self, ):
         grads = {}
 
-        for name, (s,  in self.grad_info.items():
+        for name, (s, y_true) in self.grad_info.items():
+            dx = (s - y_true) * self.out.grad
+            grads[name] = dx
 
-        [(name1, node1), (name2, node2)] = self.out.nodes.items()
-
-        if not node1.requires_grad:
-            return
-
-        s, y_true = self.grad_info[name1]
-        dy = (s - y_true) * self.out.grad
-        node1.add_grad(dy)
-
-        super().__update_grad()
+        return grads
 
     def _save_grad_info(self, args):
         if args[0].requires_grad:
-            self.grad_info[args[0]] = (self.out.value, self.__sigmoid)
+            self.grad_info[args[0].name] = (self.forward_cache["sigmoid"], self.forward_cache["y_true"])
 
 
 class MSELoss(Function):
     def __init__(self, name):
-        super(MSELoss, self).__init__(name)
+        super(MSELoss, self).__init__(name, self.__mse_forward, self.__mse_backward, 2)
 
-    def forward(self, *args):
-        y = args[0].value
-        y_true = args[1].value
-        loss = np.mean((y_true - y)**2)
-        self.out = Value(loss, f"MSELoss({args[0].name})", function_id=self.name)
+    def __mse_forward(self, y, y_true):
+        loss = np.mean((y_true.value - y.value)**2).squeeze()
 
-        key1 = self.out.attach_node(args[0])
-        key2 = self.out.attach_node(args[1])
+        return Value(loss, f"MSELoss({y.name})", function_id=self.name)
 
-        if self.out.requires_grad:
-            self.grad_info[key1] = y, y_true
+    def __mse_backward(self, ):
+        grads = {}
 
-        return self.out
+        for name, (y, y_true) in self.grad_info.items():
+            dx = 2 * (y - y_true) * self.out.grad
+            grads[name] = dx
 
-    def backward(self, ):
-        self.out.add_grad(np.ones(self.out.shape))
-        self.__update_grad()
+        return grads
 
-    def __update_grad(self, ):
-        [(name1, node1), (name2, node2)] = self.out.nodes.items()
-
-        if not node1.requires_grad:
-            return
-
-        y, y_true = self.grad_info[name1]
-        dy = 2 * (y - y_true) * self.out.grad
-        node1.add_grad(dy)
-
-        super().__update_grad()
-
-
-def add(a, b, return_func=False):
-    func = factory.FunctionFactory().get_new_function_of_type(Add)
-    if func is None:
-        print(f"Failed to get function of type _Add")
-        return
-
-    c = func.forward(a, b)
-    if return_func:
-        return c, func
-
-    return c
-
-
-def mul(a, b, return_func=False):
-    func = factory.FunctionFactory().get_new_function_of_type(Mul)
-    if func is None:
-        print(f"Failed to get function of type _Mul")
-        return
-
-    c = func.forward(a, b)
-    if return_func:
-        return c, func
-
-    return c
-
-
-def matmul(A, B, return_func=False):
-    func = factory.FunctionFactory().get_new_function_of_type(Matmul)
-    if func is None:
-        print(f"Failed to get function of type _Matmul")
-        return
-
-    c = func.forward(A, B)
-    if return_func:
-        return c, func
-
-    return c
-
-
-def exp(x, return_func=False):
-    func = factory.FunctionFactory().get_new_function_of_type(Exp)
-    if func is None:
-        print(f"Failed to get function of type _Exp")
-        return
-
-    y = func.forward(x)
-    if return_func:
-        return y, func
-
-    return y
-
-
-def sigmoid(x, return_func=False):
-    func = factory.FunctionFactory().get_new_function_of_type(Sigmoid)
-    if func is None:
-        print(f"Failed to get function of type _Sigmoid")
-        return
-
-    y = func.forward(x)
-    if return_func:
-        return y, func
-
-    return y
-
-
-def linear(X, W, b, return_func=False):
-    func = factory.FunctionFactory().get_new_function_of_type(Linear)
-    if func is None:
-        print(f"Failed to get function of type _Linear")
-        return
-
-    y = func.forward(X, W, b)
-    if return_func:
-        return y, func
-
-    return y
-
-
-def bce_loss_with_logits(y, y_true):
-    loss = factory.FunctionFactory().get_new_function_of_type(BCELossWithLogits)
-    if loss is None:
-        print(f"Failed to get BCE loss")
-        return
-
-    y = loss.forward(y, y_true)
-    return y, loss
-
-
-def mse_loss(y, y_true):
-    loss = factory.FunctionFactory().get_new_function_of_type(MSELoss)
-    if loss is None:
-        print(f"Failed to get MSE loss")
-        return
-
-    y = loss.forward(y, y_true)
-    return y, loss
+    def _save_grad_info(self, args):
+        if args[0].requires_grad:
+            self.grad_info[args[0].name] = (args[0].value, args[1].value)

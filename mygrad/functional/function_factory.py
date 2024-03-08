@@ -1,4 +1,4 @@
-# function_factory.py
+# functional/function_factory.py
 import function as F
 
 
