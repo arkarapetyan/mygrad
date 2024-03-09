@@ -38,7 +38,6 @@ class Function(object):
 
         if not self.out.active_grad:
             self.out.add_grad(np.ones(self.out.shape))
-        self.__update_grad()
 
         grads = self.backward_func()
 
@@ -50,7 +49,7 @@ class Function(object):
             if node.function_id is None:
                 continue
             func = factory.FunctionFactory().get_active_function_by_name(node.function_id)
-            func.__update_grad()
+            func.backward()
 
     def _save_grad_info(self, args):
         pass
