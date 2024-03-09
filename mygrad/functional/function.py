@@ -1,7 +1,7 @@
 # function.py
 import numpy as np
 
-import function_factory as factory
+import mygrad.functional.function_factory as factory
 from mygrad.value import Value
 
 
@@ -25,6 +25,7 @@ class Function(object):
             self.out.attach_node(args[i])
 
         if self.out.requires_grad:
+            self.grad_info = {}
             self._save_grad_info(args[:self.n_var])
 
         return self.out
@@ -76,8 +77,6 @@ class Add(Function):
         return grads
 
     def _save_grad_info(self, args):
-        self.grad_info = {}
-
         if args[0].requires_grad:
             self.grad_info[args[0].name] = args[0].shape
         if args[1].requires_grad:
@@ -105,8 +104,6 @@ class Mul(Function):
         return grads
 
     def _save_grad_info(self, args):
-        self.grad_info = {}
-
         if args[0].requires_grad:
             self.grad_info[args[0].name] = (args[0].shape, args[1].value)
         if args[1].requires_grad:
@@ -118,9 +115,9 @@ class Matmul(Function):
         super(Matmul, self).__init__(name, self.__matmul_forward, self.__matmul_backward, 2)
 
     def __matmul_forward(self, A, B):
-        A = A.reshape(A.shape[0], -1)
-        B = B.reshape(B.shape[0], -1)
-        M = np.matmul(A, B).squeeze()
+        A_val = A.value.reshape(A.shape[0], -1)
+        B_val = B.value.reshape(B.shape[0], -1)
+        M = np.matmul(A_val, B_val).squeeze()
 
         return Value(M, f"{A.name}@{B.name}", function_id=self.name)
 
@@ -141,8 +138,6 @@ class Matmul(Function):
         return grads
 
     def _save_grad_info(self, args):
-        self.grad_info = {}
-
         if args[0].requires_grad:
             self.grad_info[args[0].name] = ("L", args[1].value)
         if args[1].requires_grad:
@@ -169,8 +164,6 @@ class Exp(Function):
         return grads
 
     def _save_grad_info(self, args):
-        self.grad_info = {}
-
         if args[0].requires_grad:
             self.grad_info[args[0].name] = self.forward_cache["exp"]
 
@@ -195,8 +188,6 @@ class Sigmoid(Function):
         return grads
 
     def _save_grad_info(self, args):
-        self.grad_info = {}
-
         if args[0].requires_grad:
             self.grad_info[args[0].name] = self.forward_cache["sigmoid"]
 

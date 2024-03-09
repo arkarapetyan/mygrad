@@ -1,5 +1,5 @@
 # functional/function_factory.py
-import function as F
+import mygrad.functional.function as F
 
 
 class __SingletonMeta(type):

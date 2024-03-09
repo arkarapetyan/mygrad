@@ -1,4 +1,4 @@
-# value/value.py
+# mygrad/value.py
 import numpy as np
 
 from mygrad.node import GraphNode
