@@ -1,4 +1,4 @@
-# mygrad/node.py
+# value/node.py
 
 
 class GraphNode(object):

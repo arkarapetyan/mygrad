@@ -2,7 +2,7 @@
 import numpy as np
 
 import mygrad.functional.function_factory as factory
-from mygrad.value import Value
+from mygrad import Value
 
 
 class Function(object):
@@ -33,13 +33,13 @@ class Function(object):
     def backward(self, ):
         if self.out is None:
             raise Exception(f"Function not Computed, call forward() first")
-
-        self.out.add_grad(np.ones(self.out.shape))
-        self.__update_grad()
-
-    def __update_grad(self, ):
         if self.grad_info is None:
             raise Exception(f"Failed to get grad info, make sure that parameters require grad and call forward() first")
+
+        if not self.out.active_grad:
+            self.out.add_grad(np.ones(self.out.shape))
+        self.__update_grad()
+
         grads = self.backward_func()
 
         for name, node in self.out.nodes.items():

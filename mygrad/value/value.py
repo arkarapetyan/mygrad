@@ -1,7 +1,7 @@
-# mygrad/value.py
+# value/value.py
 import numpy as np
 
-from mygrad.node import GraphNode
+from mygrad.value.node import GraphNode
 
 
 class Value(GraphNode):

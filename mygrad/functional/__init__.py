@@ -1,6 +1,6 @@
 # functional/__init__.py
-import mygrad.functional.function as F
-from mygrad.functional.function_factory import FunctionFactory
+import mygrad as F
+from mygrad import FunctionFactory
 
 
 def add():
