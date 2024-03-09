@@ -61,7 +61,7 @@ class Add(Function):
         super(Add, self).__init__(name, self.__add_forward, self.__add_backward, 2)
 
     def __add_forward(self, a, b):
-        s = (a.value + b.value).squeeze()
+        s = (a.data + b.data).squeeze()
 
         return Value(s, f"({a.name}+{b.name})", function_id=self.name)
 
@@ -88,7 +88,7 @@ class Mul(Function):
         super(Mul, self).__init__(name, self.__mul_forward, self.__mul_backward, 2)
 
     def __mul_forward(self, a, b):
-        m = (a.value * b.value).squeeze()
+        m = (a.data * b.data).squeeze()
 
         return Value(m, f"{a.name}*{b.name}", function_id=self.name)
 
@@ -105,9 +105,9 @@ class Mul(Function):
 
     def _save_grad_info(self, args):
         if args[0].requires_grad:
-            self.grad_info[args[0].name] = (args[0].shape, args[1].value)
+            self.grad_info[args[0].name] = (args[0].shape, args[1].data)
         if args[1].requires_grad:
-            self.grad_info[args[1].name] = (args[1].shape, args[0].value)
+            self.grad_info[args[1].name] = (args[1].shape, args[0].data)
 
 
 class Matmul(Function):
@@ -115,8 +115,8 @@ class Matmul(Function):
         super(Matmul, self).__init__(name, self.__matmul_forward, self.__matmul_backward, 2)
 
     def __matmul_forward(self, A, B):
-        A_val = A.value.reshape(A.shape[0], -1)
-        B_val = B.value.reshape(B.shape[0], -1)
+        A_val = A.data.reshape(A.shape[0], -1)
+        B_val = B.data.reshape(B.shape[0], -1)
         M = np.matmul(A_val, B_val).squeeze()
 
         return Value(M, f"{A.name}@{B.name}", function_id=self.name)
@@ -139,9 +139,9 @@ class Matmul(Function):
 
     def _save_grad_info(self, args):
         if args[0].requires_grad:
-            self.grad_info[args[0].name] = ("L", args[1].value)
+            self.grad_info[args[0].name] = ("L", args[1].data)
         if args[1].requires_grad:
-            self.grad_info[args[1].name] = ("R", args[0].value)
+            self.grad_info[args[1].name] = ("R", args[0].data)
 
 
 class Exp(Function):
@@ -149,7 +149,7 @@ class Exp(Function):
         super(Exp, self).__init__(name, self.__exp_forward, self.__exp_backward, 1)
 
     def __exp_forward(self, x):
-        e = np.exp(x.value).squeeze()
+        e = np.exp(x.data).squeeze()
         self.forward_cache["exp"] = e
 
         return Value(e, f"exp({x.name})", function_id=self.name)
@@ -173,7 +173,7 @@ class Sigmoid(Function):
         super(Sigmoid, self).__init__(name, self.__sigmoid_forward, self.__sigmoid_backward, 1)
 
     def __sigmoid_forward(self, x):
-        s = 1 / (1 + np.exp(-x.value)).squeeze()
+        s = 1 / (1 + np.exp(-x.data)).squeeze()
         self.forward_cache["sigmoid"] = s
 
         return Value(s, f"sigmoid({x.name})", function_id=self.name)
@@ -197,9 +197,9 @@ class Linear(Function):
         super(Linear, self).__init__(name, self.__linear_forward, self.__linear_backward, 3)
 
     def __linear_forward(self, X, W, b):
-        X_val = X.value.reshape(X.shape[0], -1)
-        W_val = W.value.reshape(W.shape[0], -1)
-        b_val = b.value
+        X_val = X.data.reshape(X.shape[0], -1)
+        W_val = W.data.reshape(W.shape[0], -1)
+        b_val = b.data
         lin = ((X_val @ W_val).squeeze() + b_val).squeeze()
 
         return Value(lin, f"({X.name}@{W.name}+{b.name})", function_id=self.name)
@@ -226,11 +226,11 @@ class Linear(Function):
 
     def _save_grad_info(self, args):
         if args[0].requires_grad:
-            self.grad_info[args[0].name] = ("X", args[1].value, args[0].shape)
+            self.grad_info[args[0].name] = ("X", args[1].data, args[0].shape)
         if args[1].requires_grad:
-            self.grad_info[args[1].name] = ("W", args[0].value, args[1].shape)
+            self.grad_info[args[1].name] = ("W", args[0].data, args[1].shape)
         if args[2].requires_grad:
-            self.grad_info[args[2].name] = ("b", args[2].value, args[2].shape)
+            self.grad_info[args[2].name] = ("b", args[2].data, args[2].shape)
 
 
 class BCELossWithLogits(Function):
@@ -238,10 +238,10 @@ class BCELossWithLogits(Function):
         super(BCELossWithLogits, self).__init__(name, self.__bce_forward, self.__bce_backward, 2)
 
     def __bce_forward(self, y, y_true):
-        s = 1 / (1 + np.exp(-y.value)).squeeze()
-        loss = -np.mean(y_true.value * np.log(s) + (1 - y_true.value) * np.log(1 - s)).squeeze()
+        s = 1 / (1 + np.exp(-y.data)).squeeze()
+        loss = -np.mean(y_true.data * np.log(s) + (1 - y_true.data) * np.log(1 - s)).squeeze()
         self.forward_cache["sigmoid"] = s
-        self.forward_cache["y_true"] = y_true.value
+        self.forward_cache["y_true"] = y_true.data
 
         return Value(loss, f"BCELossWithLogits({y.name})", function_id=self.name)
 
@@ -264,7 +264,7 @@ class MSELoss(Function):
         super(MSELoss, self).__init__(name, self.__mse_forward, self.__mse_backward, 2)
 
     def __mse_forward(self, y, y_true):
-        loss = np.mean((y_true.value - y.value)**2).squeeze()
+        loss = np.mean((y_true.data - y.data) ** 2).squeeze()
 
         return Value(loss, f"MSELoss({y.name})", function_id=self.name)
 
@@ -279,4 +279,4 @@ class MSELoss(Function):
 
     def _save_grad_info(self, args):
         if args[0].requires_grad:
-            self.grad_info[args[0].name] = (args[0].value, args[1].value)
+            self.grad_info[args[0].name] = (args[0].data, args[1].data)

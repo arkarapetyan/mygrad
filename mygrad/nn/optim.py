@@ -10,7 +10,7 @@ class Optimizer:
 
     def step(self, ):
         for name, param in self.params.items():
-            param.value -= self.lr * self.__param_optim_step(name)
+            param.data -= self.lr * self.__param_optim_step(name)
 
     def zero_grad(self, ):
         for name, param in self.params.items():
