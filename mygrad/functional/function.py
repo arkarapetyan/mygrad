@@ -1,4 +1,4 @@
-# function.py
+# functional/function.py
 import numpy as np
 
 import mygrad.functional.function_factory as factory
