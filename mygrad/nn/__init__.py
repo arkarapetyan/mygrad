@@ -2,3 +2,4 @@
 
 from module import *
 from optim import *
+from init import *
