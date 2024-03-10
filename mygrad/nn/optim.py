@@ -10,7 +10,8 @@ class Optimizer:
 
     def step(self, ):
         for name, param in self.params.items():
-            param.data -= self.lr * self.__param_optim_step(name)
+            step = self.__param_optim_step(name)
+            param.set_data(param.data - self.lr * step)
 
     def zero_grad(self, ):
         for name, param in self.params.items():
@@ -66,7 +67,5 @@ class Adam(Optimizer):
         v_hat = self.v[param_name] / (1 - self.beta2)
 
         step = m_hat / np.sqrt(v_hat + self.eps)
-
-        print(param_name, self.params[param_name].grad.shape, step.shape)
 
         return step

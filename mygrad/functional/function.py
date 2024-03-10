@@ -127,6 +127,7 @@ class Matmul(Function):
         dy = dy.reshape(dy.shape[0], -1)
 
         for name, (mul_side, dx) in self.grad_info.items():
+            dx = dx.reshape(dx.shape[0], -1)
             if mul_side == "L":
                 dx = (dy @ dx.T).squeeze()
             elif mul_side == "R":

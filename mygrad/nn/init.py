@@ -27,7 +27,7 @@ def xavier_normal_initialization(v, gain=1.0, activation=None, param=None):
         n_out = v.shape[1]
 
     std = gain * np.sqrt(2 / (n_in + n_out))
-    v.data = std * np.random.randn(n_in, n_out)
+    v.set_data(std * np.random.randn(n_in, n_out))
 
 
 def xavier_uniform_initialization(v, gain=1.0, activation=None, param=None):
@@ -40,7 +40,7 @@ def xavier_uniform_initialization(v, gain=1.0, activation=None, param=None):
         n_out = v.shape[1]
 
     x = gain * np.sqrt(6 / (n_in + n_out))
-    v.data = np.random.uniform(-x, x, (n_in, n_out))
+    v.set_data(np.random.uniform(-x, x, (n_in, n_out)))
 
 
 def he_normal_initialization(v, gain=1.0, mode="n_in", activation=None, param=None):
@@ -62,7 +62,7 @@ def he_normal_initialization(v, gain=1.0, mode="n_in", activation=None, param=No
         n = n_in
 
     std = gain * np.sqrt(1 / n)
-    v.data = std * np.random.randn(n_in, n_out)
+    v.set_data(std * np.random.randn(n_in, n_out))
 
 
 def he_uniform_initialization(v, gain=1.0, mode="n_in", activation=None, param=None):
@@ -84,4 +84,4 @@ def he_uniform_initialization(v, gain=1.0, mode="n_in", activation=None, param=N
         n = n_in
 
     x = gain * np.sqrt(3 / n)
-    v.data = np.random.uniform(-x, x, size=(n_in, n_out))
+    v.set_data(np.random.uniform(-x, x, size=(n_in, n_out)))

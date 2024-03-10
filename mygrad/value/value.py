@@ -13,6 +13,9 @@ class Value(GraphNode):
         self.ndim = self.data.ndim
         self.requires_grad = requires_grad
 
+    def set_data(self, new_data):
+        self.data = np.array(new_data).squeeze()
+
     def __repr__(self):
         return (f"Value(data={self.data}, shape={self.shape}, name={self.name}, requires_grad={self.requires_grad}), "
                 f"dtype={self.dtype}")
