@@ -21,7 +21,11 @@ def xavier_normal_initialization(v, gain=1.0, activation=None, param=None):
     if activation is not None:
         gain = get_gain_by_activation(activation, param)
 
-    n_in, n_out = v.shape[0], v.shape[1]
+    n_in = v.shape[0]
+    n_out = 1
+    if v.ndim > 1:
+        n_out = v.shape[1]
+
     std = gain * np.sqrt(2 / (n_in + n_out))
     v.data = std * np.random.randn(n_in, n_out)
 
@@ -30,7 +34,11 @@ def xavier_uniform_initialization(v, gain=1.0, activation=None, param=None):
     if activation is not None:
         gain = get_gain_by_activation(activation, param)
 
-    n_in, n_out = v.shape[0], v.shape[1]
+    n_in = v.shape[0]
+    n_out = 1
+    if v.ndim > 1:
+        n_out = v.shape[1]
+
     x = gain * np.sqrt(6 / (n_in + n_out))
     v.data = np.random.uniform(-x, x, (n_in, n_out))
 
@@ -39,7 +47,11 @@ def he_normal_initialization(v, gain=1.0, mode="n_in", activation=None, param=No
     if activation is not None:
         gain = get_gain_by_activation(activation, param)
 
-    n_in, n_out = v.shape[0], v.shape[1]
+    n_in = v.shape[0]
+    n_out = 1
+    if v.ndim > 1:
+        n_out = v.shape[1]
+
     n = None
     if mode == "n_in":
         n = n_in
@@ -57,7 +69,11 @@ def he_uniform_initialization(v, gain=1.0, mode="n_in", activation=None, param=N
     if activation is not None:
         gain = get_gain_by_activation(activation, param)
 
-    n_in, n_out = v.shape[0], v.shape[1]
+    n_in = v.shape[0]
+    n_out = 1
+    if v.ndim > 1:
+        n_out = v.shape[1]
+
     n = None
     if mode == "n_in":
         n = n_in

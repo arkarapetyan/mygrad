@@ -67,4 +67,6 @@ class Adam(Optimizer):
 
         step = m_hat / np.sqrt(v_hat + self.eps)
 
+        print(param_name, self.params[param_name].grad.shape, step.shape)
+
         return step

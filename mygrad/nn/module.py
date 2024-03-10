@@ -13,9 +13,6 @@ class Module(object):
     def forward(self, X):
         pass
 
-    def backward(self, ):
-        pass
-
     def parameters(self, ):
         pass
 
@@ -32,7 +29,7 @@ class Linear(Module):
 
         if init is not None:
             activation = kwargs.get("activation", None)
-            gain = kwargs.get("gain", None)
+            gain = kwargs.get("gain", 1.0)
             param = kwargs.get("LeakyReLU_alpha", None)
 
             if init == "xavier_normal":
@@ -46,9 +43,6 @@ class Linear(Module):
 
     def forward(self, X):
         return self.add1.forward(self.matmul1.forward(X, self.W), self.b)
-
-    def backward(self, ):
-        return self.add1.backward()
 
     def parameters(self, ):
         return [self.W, self.b]

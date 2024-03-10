@@ -1,10 +1,10 @@
 # functional/__init__.py
-import mygrad.functional.function as F
 from mygrad.functional.function_factory import FunctionFactory
+from mygrad.functional.function import *
 
 
 def add():
-    func = FunctionFactory().get_new_function_of_type(F.Add)
+    func = FunctionFactory().get_new_function_of_type(Add)
     if func is None:
         print(f"Failed to get function of type _Add")
         return
@@ -13,7 +13,7 @@ def add():
 
 
 def mul():
-    func = FunctionFactory().get_new_function_of_type(F.Mul)
+    func = FunctionFactory().get_new_function_of_type(Mul)
     if func is None:
         print(f"Failed to get function of type _Mul")
         return
@@ -22,7 +22,7 @@ def mul():
 
 
 def matmul():
-    func = FunctionFactory().get_new_function_of_type(F.Matmul)
+    func = FunctionFactory().get_new_function_of_type(Matmul)
     if func is None:
         print(f"Failed to get function of type _Matmul")
         return
@@ -31,7 +31,7 @@ def matmul():
 
 
 def exp():
-    func = FunctionFactory().get_new_function_of_type(F.Exp)
+    func = FunctionFactory().get_new_function_of_type(Exp)
     if func is None:
         print(f"Failed to get function of type _Exp")
         return
@@ -40,7 +40,25 @@ def exp():
 
 
 def sigmoid():
-    func = FunctionFactory().get_new_function_of_type(F.Sigmoid)
+    func = FunctionFactory().get_new_function_of_type(Sigmoid)
+    if func is None:
+        print(f"Failed to get function of type _Sigmoid")
+        return
+
+    return func
+
+
+def tanh():
+    func = FunctionFactory().get_new_function_of_type(Tanh)
+    if func is None:
+        print(f"Failed to get function of type _Sigmoid")
+        return
+
+    return func
+
+
+def relu():
+    func = FunctionFactory().get_new_function_of_type(ReLU)
     if func is None:
         print(f"Failed to get function of type _Sigmoid")
         return
@@ -49,7 +67,7 @@ def sigmoid():
 
 
 def linear():
-    func = FunctionFactory().get_new_function_of_type(F.Linear)
+    func = FunctionFactory().get_new_function_of_type(Linear)
     if func is None:
         print(f"Failed to get function of type _Linear")
         return
@@ -58,7 +76,7 @@ def linear():
 
 
 def bce_loss_with_logits():
-    loss = FunctionFactory().get_new_function_of_type(F.BCELossWithLogits)
+    loss = FunctionFactory().get_new_function_of_type(BCELossWithLogits)
     if loss is None:
         print(f"Failed to get BCE loss")
         return
@@ -67,7 +85,7 @@ def bce_loss_with_logits():
 
 
 def mse_loss():
-    loss = FunctionFactory().get_new_function_of_type(F.MSELoss)
+    loss = FunctionFactory().get_new_function_of_type(MSELoss)
     if loss is None:
         print(f"Failed to get MSE loss")
         return

@@ -1,7 +1,7 @@
 # functional/function.py
 import numpy as np
 
-import mygrad.functional.function_factory as factory
+from mygrad.functional.function_factory import FunctionFactory
 from mygrad import Value
 
 
@@ -48,7 +48,7 @@ class Function(object):
             node.add_grad(grads[name])
             if node.function_id is None:
                 continue
-            func = factory.FunctionFactory().get_active_function_by_name(node.function_id)
+            func = FunctionFactory().get_active_function_by_name(node.function_id)
             func.backward()
 
     def _save_grad_info(self, args):
@@ -180,7 +180,8 @@ class Sigmoid(Function):
     def __sigmoid_backward(self, ):
         grads = {}
 
-        for name, dx in self.grad_info.items():
+        for name, sigmoid in self.grad_info.items():
+            dx = sigmoid * (1 - sigmoid)
             dx *= self.out.grad
             grads[name] = dx
 
@@ -189,6 +190,56 @@ class Sigmoid(Function):
     def _save_grad_info(self, args):
         if args[0].requires_grad:
             self.grad_info[args[0].name] = self.forward_cache["sigmoid"]
+
+
+class Tanh(Function):
+    def __init__(self, name):
+        super(Tanh, self).__init__(name, self.__tanh_forward, self.__tanh_backward, 1)
+
+    def __tanh_forward(self, x):
+        t = 2 / (1 + np.exp(-2 * x.data)) - 1
+        self.forward_cache["tanh"] = t
+
+        return Value(t, f"tanh({x.name})", function_id=self.name)
+
+    def __tanh_backward(self, ):
+        grads = {}
+
+        for name, tanh in self.grad_info.items():
+            dx = 1 - (tanh ** 2)
+            dx *= self.out.grad
+            grads[name] = dx
+
+        return grads
+
+    def _save_grad_info(self, args):
+        if args[0].requires_grad:
+            self.grad_info[args[0].name] = self.forward_cache["tanh"]
+
+
+class ReLU(Function):
+    def __init__(self, name):
+        super(ReLU, self).__init__(name, self.__relu_forward, self.__relu_backward, 1)
+
+    def __relu_forward(self, x):
+        mask = (x.data > 0) * 1.0
+        r = x * mask
+        self.forward_cache["mask"] = mask
+
+        return Value(r, f"relu({x.name})", function_id=self.name)
+
+    def __relu_backward(self, ):
+        grads = {}
+
+        for name, mask in self.grad_info.items():
+            dx = mask
+            grads[name] = dx
+
+        return grads
+
+    def _save_grad_info(self, args):
+        if args[0].requires_grad:
+            self.grad_info[args[0].name] = self.forward_cache["mask"]
 
 
 class Linear(Function):

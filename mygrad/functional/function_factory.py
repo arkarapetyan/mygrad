@@ -1,5 +1,5 @@
 # functional/function_factory.py
-import mygrad.functional.function as F
+import mygrad.functional as F
 
 
 class __SingletonMeta(type):
@@ -70,6 +70,14 @@ class FunctionFactory(metaclass=__SingletonMeta):
             name = f"sigmoid_{num}"
             print(name)
             return name, F.Sigmoid(name)
+        elif f_type == F.Tanh:
+            name = f"tanh_{num}"
+            print(name)
+            return name, F.Tanh(name)
+        elif f_type == F.ReLU:
+            name = f"relu_{num}"
+            print(name)
+            return name, F.ReLU(name)
         elif f_type == F.Linear:
             name = f"linear_{num}"
             print(name)
